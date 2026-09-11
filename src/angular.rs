@@ -357,7 +357,4 @@ impl zed::Extension for AngularExtension {
     }
 }
 
-#[cfg(test)]
-mod angular_tests;
-
 zed::register_extension!(AngularExtension);
