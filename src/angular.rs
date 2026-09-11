@@ -1,11 +1,11 @@
 use serde::Deserialize;
 use zed::lsp::{Completion, CompletionKind};
 use zed::settings::LspSettings;
-use zed::CodeLabelSpan;
+use zed::{CodeLabelSpan, LanguageServerInstallationStatus};
 use zed_extension_api::{self as zed, serde_json, Result};
 
-/// Default location of the language server package, relative to the worktree root.
-const DEFAULT_SERVER_DIR: &str = "node_modules/@angular/language-server";
+const SERVER_PACKAGE: &str = "@angular/language-server";
+const MANAGED_SERVER_DIR: &str = "node_modules/@angular/language-server";
 
 #[derive(Deserialize, Default)]
 struct UserSettings {
@@ -13,12 +13,14 @@ struct UserSettings {
     /// node as `--max-old-space-size`.
     max_ts_server_memory: Option<u32>,
     /// Override the location of the `@angular/language-server` package.
-    /// Worktree-relative, absolute, or `~`-prefixed. Defaults to
-    /// `node_modules/@angular/language-server`.
+    /// Worktree-relative, absolute, or `~`-prefixed. When omitted, the
+    /// extension installs and maintains its own copy.
     angular_language_server_path: Option<String>,
 }
 
-struct AngularExtension;
+struct AngularExtension {
+    managed_server_version: Option<String>,
+}
 
 impl AngularExtension {
     /// Trim whitespace, a trailing `/index.js`, and trailing slashes so the
@@ -59,15 +61,11 @@ impl AngularExtension {
     /// `node_modules` and unexpanded symlinked directories, so any check here
     /// yields false negatives. node resolves the path against the real
     /// filesystem and reports `MODULE_NOT_FOUND` if it is wrong.
-    fn resolve_server_dir(worktree: &zed::Worktree, override_path: Option<&str>) -> String {
+    fn resolve_custom_server_dir(worktree: &zed::Worktree, override_path: &str) -> String {
         let root = worktree.root_path();
         let root = root.trim_end_matches('/');
 
-        let requested = override_path
-            .map(|p| Self::expand_home(worktree, p))
-            .map(|p| Self::normalize(&p))
-            .filter(|p| !p.is_empty())
-            .unwrap_or_else(|| DEFAULT_SERVER_DIR.to_string());
+        let requested = Self::normalize(&Self::expand_home(worktree, override_path));
 
         let is_drive_abs = requested.len() > 2
             && requested.as_bytes()[1] == b':'
@@ -77,6 +75,71 @@ impl AngularExtension {
         } else {
             format!("{root}/{requested}")
         }
+    }
+
+    /// Install and update the extension-managed language server. NPM packages
+    /// installed through the extension API live in the extension's working
+    /// directory, so this deliberately returns a relative path rather than a
+    /// path below the user's worktree.
+    fn managed_server_dir(&mut self, language_server_id: &zed::LanguageServerId) -> Result<String> {
+        if self.managed_server_version.is_some() {
+            return Ok(MANAGED_SERVER_DIR.to_string());
+        }
+
+        zed::set_language_server_installation_status(
+            language_server_id,
+            &LanguageServerInstallationStatus::CheckingForUpdate,
+        );
+
+        let installed = match zed::npm_package_installed_version(SERVER_PACKAGE) {
+            Ok(version) => version,
+            Err(error) => {
+                zed::set_language_server_installation_status(
+                    language_server_id,
+                    &LanguageServerInstallationStatus::Failed(error.clone()),
+                );
+                return Err(error);
+            }
+        };
+        let latest = match zed::npm_package_latest_version(SERVER_PACKAGE) {
+            Ok(version) => version,
+            Err(_error) if installed.is_some() => {
+                self.managed_server_version = installed;
+                zed::set_language_server_installation_status(
+                    language_server_id,
+                    &LanguageServerInstallationStatus::None,
+                );
+                return Ok(MANAGED_SERVER_DIR.to_string());
+            }
+            Err(error) => {
+                zed::set_language_server_installation_status(
+                    language_server_id,
+                    &LanguageServerInstallationStatus::Failed(error.clone()),
+                );
+                return Err(error);
+            }
+        };
+
+        if installed.as_deref() != Some(latest.as_str()) {
+            zed::set_language_server_installation_status(
+                language_server_id,
+                &LanguageServerInstallationStatus::Downloading,
+            );
+            if let Err(error) = zed::npm_install_package(SERVER_PACKAGE, &latest) {
+                zed::set_language_server_installation_status(
+                    language_server_id,
+                    &LanguageServerInstallationStatus::Failed(error.clone()),
+                );
+                return Err(error);
+            }
+        }
+
+        self.managed_server_version = Some(latest);
+        zed::set_language_server_installation_status(
+            language_server_id,
+            &LanguageServerInstallationStatus::None,
+        );
+        Ok(MANAGED_SERVER_DIR.to_string())
     }
 
     /// Probe roots: the worktree root, its `node_modules`, and each ancestor of
@@ -109,7 +172,9 @@ impl AngularExtension {
 
 impl zed::Extension for AngularExtension {
     fn new() -> Self {
-        Self
+        Self {
+            managed_server_version: None,
+        }
     }
 
     fn language_server_command(
@@ -127,8 +192,15 @@ impl zed::Extension for AngularExtension {
                 .unwrap_or_default();
 
         let root = worktree.root_path();
-        let server_dir =
-            Self::resolve_server_dir(worktree, settings.angular_language_server_path.as_deref());
+        let server_dir = match settings
+            .angular_language_server_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+        {
+            Some(path) => Self::resolve_custom_server_dir(worktree, path),
+            None => self.managed_server_dir(language_server_id)?,
+        };
         let probes = Self::probe_locations(&root, &server_dir);
 
         let mut args = Vec::new();
