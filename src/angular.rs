@@ -6,6 +6,7 @@ use zed_extension_api::{self as zed, serde_json, Result};
 
 const SERVER_PACKAGE: &str = "@angular/language-server";
 const MANAGED_SERVER_DIR: &str = "node_modules/@angular/language-server";
+const MANAGED_SERVER_BINARY: &str = "node_modules/.bin/ngserver";
 
 #[derive(Deserialize, Default)]
 struct UserSettings {
@@ -192,25 +193,33 @@ impl zed::Extension for AngularExtension {
                 .unwrap_or_default();
 
         let root = worktree.root_path();
-        let server_dir = match settings
+        let (server_dir, managed_server) = match settings
             .angular_language_server_path
             .as_deref()
             .map(str::trim)
             .filter(|path| !path.is_empty())
         {
-            Some(path) => Self::resolve_custom_server_dir(worktree, path),
-            None => self.managed_server_dir(language_server_id)?,
+            Some(path) => (Self::resolve_custom_server_dir(worktree, path), false),
+            None => (self.managed_server_dir(language_server_id)?, true),
         };
         let probes = Self::probe_locations(&root, &server_dir);
 
         let mut args = Vec::new();
 
-        // Node flags must come before the script path.
-        if let Some(mb) = settings.max_ts_server_memory {
-            args.push(format!("--max-old-space-size={mb}"));
-        }
+        let command = if managed_server {
+            // Zed resolves a relative command against the extension's working
+            // directory. A relative argument passed to node would instead be
+            // resolved against the user's worktree.
+            MANAGED_SERVER_BINARY.to_string()
+        } else {
+            // Node flags must come before the script path.
+            if let Some(mb) = settings.max_ts_server_memory {
+                args.push(format!("--max-old-space-size={mb}"));
+            }
+            args.push(format!("{server_dir}/index.js"));
+            zed::node_binary_path()?
+        };
 
-        args.push(format!("{server_dir}/index.js"));
         args.push("--stdio".into());
         args.push("--tsProbeLocations".into());
         args.push(probes.clone());
@@ -220,11 +229,22 @@ impl zed::Extension for AngularExtension {
         args.push("--logVerbosity".into());
         args.push("normal".into());
 
-        Ok(zed::Command {
-            command: zed::node_binary_path()?,
-            args,
-            env: worktree.shell_env(),
-        })
+        let mut env = worktree.shell_env();
+        if managed_server {
+            if let Some(mb) = settings.max_ts_server_memory {
+                let memory_option = format!("--max-old-space-size={mb}");
+                match env.iter_mut().find(|(name, _)| name == "NODE_OPTIONS") {
+                    Some((_, value)) if !value.is_empty() => {
+                        value.push(' ');
+                        value.push_str(&memory_option);
+                    }
+                    Some((_, value)) => *value = memory_option,
+                    None => env.push(("NODE_OPTIONS".into(), memory_option)),
+                }
+            }
+        }
+
+        Ok(zed::Command { command, args, env })
     }
 
     fn label_for_completion(

@@ -14,7 +14,7 @@ This extension integrates the Angular Language Service into Zed. It uses the sam
 
 ## Automatic Language Server Installation
 
-No global or project-local language server installation is required. On its first start, the extension uses Zed's Node extension API to download the latest `@angular/language-server` release into extension-managed storage. It reuses that installation on subsequent starts and checks for updates once per extension session.
+No global or project-local language server installation is required. On its first start, the extension uses Zed's Node extension API to download the latest `@angular/language-server` release into extension-managed storage. It launches the package's extension-relative `ngserver` executable, reuses that installation on subsequent starts, and checks for updates once per extension session.
 
 The server still probes the open worktree for the project's Angular and TypeScript packages, so application dependencies should be installed normally (for example with `npm install`). If the npm registry is temporarily unavailable, an already downloaded server remains usable.
 
@@ -96,7 +96,7 @@ In large workspaces (e.g. monorepos), the language server can exceed node's defa
 }
 ```
 
-Start at `8192` and increase only if crashes persist; the value is a ceiling, not a reservation, so node allocates lazily. Setting it above the machine's available RAM will trade crashes for swapping. The flag is emitted before the server script path so node interprets it, and it is omitted entirely when the option is unset.
+Start at `8192` and increase only if crashes persist; the value is a ceiling, not a reservation, so node allocates lazily. Setting it above the machine's available RAM will trade crashes for swapping. For the managed executable the extension appends the flag to `NODE_OPTIONS`; for a custom server path it emits the flag before the server script path. It is omitted entirely when the option is unset.
 
 ## Installation Instructions
 
