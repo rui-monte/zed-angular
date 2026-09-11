@@ -7,8 +7,8 @@ use zed_extension_api::{self as zed, serde_json, Result};
 const SERVER_PACKAGE: &str = "@angular/language-server";
 const LANGUAGE_SERVICE_PACKAGE: &str = "@angular/language-service";
 const MANAGED_SERVER_DIR: &str = "node_modules/@angular/language-server";
-const MANAGED_SERVER_LAUNCHER: &str = "bin/angular-language-server.js";
-const MANAGED_SERVER_LAUNCHER_WINDOWS: &str = "bin/angular-language-server.cmd";
+const MANAGED_SERVER_LAUNCHER: &str = "languages/angular/bin/angular-language-server.js";
+const MANAGED_SERVER_LAUNCHER_WINDOWS: &str = "languages/angular/bin/angular-language-server.cmd";
 
 #[derive(Deserialize, Default)]
 struct UserSettings {

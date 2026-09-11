@@ -7,7 +7,7 @@
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 
-const extensionRoot = path.resolve(__dirname, "..");
+const extensionRoot = path.resolve(__dirname, "../../..");
 const managedNodeModules = path.join(extensionRoot, "node_modules");
 const server = path.join(
   managedNodeModules,
