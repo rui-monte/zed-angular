@@ -1,13 +1,14 @@
 use serde::Deserialize;
 use zed::lsp::{Completion, CompletionKind};
 use zed::settings::LspSettings;
-use zed::{CodeLabelSpan, LanguageServerInstallationStatus};
+use zed::{CodeLabelSpan, LanguageServerInstallationStatus, Os};
 use zed_extension_api::{self as zed, serde_json, Result};
 
 const SERVER_PACKAGE: &str = "@angular/language-server";
 const LANGUAGE_SERVICE_PACKAGE: &str = "@angular/language-service";
 const MANAGED_SERVER_DIR: &str = "node_modules/@angular/language-server";
-const MANAGED_SERVER_BINARY: &str = "node_modules/.bin/ngserver";
+const MANAGED_SERVER_LAUNCHER: &str = "bin/angular-language-server.js";
+const MANAGED_SERVER_LAUNCHER_WINDOWS: &str = "bin/angular-language-server.cmd";
 
 #[derive(Deserialize, Default)]
 struct UserSettings {
@@ -237,9 +238,14 @@ impl zed::Extension for AngularExtension {
 
         let command = if managed_server {
             // Zed resolves a relative command against the extension's working
-            // directory. A relative argument passed to node would instead be
-            // resolved against the user's worktree.
-            MANAGED_SERVER_BINARY.to_string()
+            // directory. The launcher converts the managed npm directory to
+            // an absolute probe location before loading the server; probe
+            // arguments themselves are otherwise resolved from the worktree.
+            match zed::current_platform().0 {
+                Os::Windows => MANAGED_SERVER_LAUNCHER_WINDOWS,
+                Os::Mac | Os::Linux => MANAGED_SERVER_LAUNCHER,
+            }
+            .to_string()
         } else {
             // Node flags must come before the script path.
             if let Some(mb) = settings.max_ts_server_memory {
