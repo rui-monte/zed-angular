@@ -5,6 +5,7 @@ use zed::{CodeLabelSpan, LanguageServerInstallationStatus};
 use zed_extension_api::{self as zed, serde_json, Result};
 
 const SERVER_PACKAGE: &str = "@angular/language-server";
+const LANGUAGE_SERVICE_PACKAGE: &str = "@angular/language-service";
 const MANAGED_SERVER_DIR: &str = "node_modules/@angular/language-server";
 const MANAGED_SERVER_BINARY: &str = "node_modules/.bin/ngserver";
 
@@ -92,7 +93,17 @@ impl AngularExtension {
             &LanguageServerInstallationStatus::CheckingForUpdate,
         );
 
-        let installed = match zed::npm_package_installed_version(SERVER_PACKAGE) {
+        let installed_server = match zed::npm_package_installed_version(SERVER_PACKAGE) {
+            Ok(version) => version,
+            Err(error) => {
+                zed::set_language_server_installation_status(
+                    language_server_id,
+                    &LanguageServerInstallationStatus::Failed(error.clone()),
+                );
+                return Err(error);
+            }
+        };
+        let installed_service = match zed::npm_package_installed_version(LANGUAGE_SERVICE_PACKAGE) {
             Ok(version) => version,
             Err(error) => {
                 zed::set_language_server_installation_status(
@@ -104,8 +115,8 @@ impl AngularExtension {
         };
         let latest = match zed::npm_package_latest_version(SERVER_PACKAGE) {
             Ok(version) => version,
-            Err(_error) if installed.is_some() => {
-                self.managed_server_version = installed;
+            Err(_error) if installed_server.is_some() && installed_service.is_some() => {
+                self.managed_server_version = installed_server;
                 zed::set_language_server_installation_status(
                     language_server_id,
                     &LanguageServerInstallationStatus::None,
@@ -121,12 +132,30 @@ impl AngularExtension {
             }
         };
 
-        if installed.as_deref() != Some(latest.as_str()) {
+        if installed_server.as_deref() != Some(latest.as_str()) {
             zed::set_language_server_installation_status(
                 language_server_id,
                 &LanguageServerInstallationStatus::Downloading,
             );
             if let Err(error) = zed::npm_install_package(SERVER_PACKAGE, &latest) {
+                zed::set_language_server_installation_status(
+                    language_server_id,
+                    &LanguageServerInstallationStatus::Failed(error.clone()),
+                );
+                return Err(error);
+            }
+        }
+
+        // `@angular/language-server` resolves this package from its probe
+        // locations at runtime but does not install it itself. Keep both
+        // Angular packages on the same release so a managed installation is
+        // actually self-contained.
+        if installed_service.as_deref() != Some(latest.as_str()) {
+            zed::set_language_server_installation_status(
+                language_server_id,
+                &LanguageServerInstallationStatus::Downloading,
+            );
+            if let Err(error) = zed::npm_install_package(LANGUAGE_SERVICE_PACKAGE, &latest) {
                 zed::set_language_server_installation_status(
                     language_server_id,
                     &LanguageServerInstallationStatus::Failed(error.clone()),
