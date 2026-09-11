@@ -12,19 +12,17 @@ This extension integrates the Angular Language Service into Zed. It uses the sam
 }
 ```
 
-## Requirements
+## Automatic Language Server Installation
 
-The extension does not bundle or download a language server. It runs the copy of `@angular/language-server` installed in your project, using the Node binary managed by Zed. Install it alongside `typescript` as dev dependencies:
+No global or project-local language server installation is required. On its first start, the extension uses Zed's Node extension API to download matching releases of `@angular/language-server` and its runtime `@angular/language-service` package into extension-managed storage. The extension starts that managed server by absolute path and adds its storage to Angular's package probe locations. The extension reuses those installations on subsequent starts and checks for updates once per extension session.
 
-```sh
-npm install --save-dev @angular/language-server typescript
-```
+The server still probes the open worktree for the project's Angular and TypeScript packages, so application dependencies should be installed normally (for example with `npm install`). If the npm registry is temporarily unavailable, an already downloaded server remains usable.
 
-By default the extension looks for the package at `node_modules/@angular/language-server`, relative to the root of the worktree you have open in Zed.
+To opt out of the managed server, set `angular_language_server_path` to a local installation as described below.
 
 ## Version Management
 
-The extension depends on the `@angular/language-server` and `typescript` Node packages. It will use whatever versions of each that are available locally in your project.
+The extension manages the latest `@angular/language-server` package and uses the `typescript` package available in your project.
 
 The major version of `@angular/language-server` must match the Angular major version used by your project. TypeScript must be **5.0 or later**, and **6.0.3 is the latest supported version** — newer releases are untested and may fail to load. Mismatches typically surface as a `Failed to resolve 'typescript/lib/tsserverlibrary'` error in the language server logs.
 
@@ -46,7 +44,7 @@ All options are set under `lsp.angular.initialization_options` in your Zed `sett
 
 | Option                         | Type     | Default                                  | Description                                                                        |
 | ------------------------------ | -------- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
-| `angular_language_server_path` | `string` | `node_modules/@angular/language-server`  | Location of the `@angular/language-server` package directory.                      |
+| `angular_language_server_path` | `string` | extension-managed installation           | Optional location of a custom `@angular/language-server` package directory.        |
 | `max_ts_server_memory`         | `number` | unset (node default, ~4 GB)              | Heap limit in MB, passed to node as `--max-old-space-size`.                         |
 
 Both can be combined — this is the typical monorepo setup, where the app lives in a subfolder *and* the project is large enough to exhaust node's default heap:
@@ -68,7 +66,7 @@ Both options are optional and independent; omit either one to keep its default.
 
 ### Custom Server Path
 
-Set `angular_language_server_path` when the language server is not installed at the default location — for example in a monorepo where the Angular app lives in a subfolder.
+Set `angular_language_server_path` to opt out of automatic installation—for example, to pin the server to the Angular major version installed in a project or to use a monorepo package.
 
 The value must be the **package directory**, not the `index.js` file inside it (a trailing `/index.js` is tolerated and stripped). Accepted forms:
 
@@ -98,7 +96,7 @@ In large workspaces (e.g. monorepos), the language server can exceed node's defa
 }
 ```
 
-Start at `8192` and increase only if crashes persist; the value is a ceiling, not a reservation, so node allocates lazily. Setting it above the machine's available RAM will trade crashes for swapping. The flag is emitted before the server script path so node interprets it, and it is omitted entirely when the option is unset.
+Start at `8192` and increase only if crashes persist; the value is a ceiling, not a reservation, so node allocates lazily. Setting it above the machine's available RAM will trade crashes for swapping. The extension emits the flag before the server script path so Node interprets it. It is omitted entirely when the option is unset.
 
 ## Installation Instructions
 
