@@ -80,6 +80,14 @@ test('the managed stack detects Angular per project in a mixed-version monorepo'
     await t.test(`Angular ${major}: template hover, diagnostics, and standalone defaults`, async () => {
       const project = await createProject(root, major);
       const componentUri = await server.open(join(project, 'app.ts'), 'typescript', component);
+      // Opening an external template replaces Angular's pending diagnostic
+      // batch. Await the component publication before opening its template.
+      const isStandaloneError = (item) => /standalone.*cannot be declared/i.test(item.message);
+      const diagnostics = await server.diagnostics(componentUri,
+        (items) => major < 19 || items.some(isStandaloneError));
+      assert.equal(diagnostics.some(isStandaloneError), major >= 19,
+        'Standalone defaults must come from the project Angular version, not the managed service or workspace root');
+
       const templateUri = await server.open(join(project, 'app.html'), 'html', template);
       await server.diagnostics(templateUri, (items) => items.some((item) => /missing/.test(item.message)));
 
@@ -88,12 +96,6 @@ test('the managed stack detects Angular per project in a mixed-version monorepo'
         position: { line: 0, character: template.indexOf('title') + 1 },
       });
       assert.match(JSON.stringify(hover), /title.*string/);
-
-      const isStandaloneError = (item) => /standalone.*cannot be declared/i.test(item.message);
-      const diagnostics = await server.diagnostics(componentUri,
-        (items) => major < 19 || items.some(isStandaloneError));
-      assert.equal(diagnostics.some(isStandaloneError), major >= 19,
-        'Standalone defaults must come from the project Angular version, not the managed service or workspace root');
     });
   }
 
