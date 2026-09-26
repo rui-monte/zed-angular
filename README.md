@@ -104,7 +104,7 @@ Start at `8192` and increase only if crashes persist; the value is a ceiling, no
 
 To install this extension locally:
 
-1. Clone this repository.
+1. Clone this repository and [install Rust via rustup](https://zed.dev/docs/extensions/developing-extensions#developing-an-extension-locally). Zed must be able to find `rustc` and `cargo` on its PATH.
 2. Open the Zed editor and navigate to the Extensions window.
 3. Click on "Install Dev Extension."
 4. Select the cloned repository location and complete the installation.
@@ -133,8 +133,8 @@ The Rust tests cover installation, offline reuse, retries, custom paths, and lau
 cargo fmt -- --check
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
-rustup target add wasm32-wasip1
-cargo build --locked --target wasm32-wasip1
+rustup target add wasm32-wasip2
+cargo build --locked --target wasm32-wasip2
 ```
 
 To run the actual language server against the Angular fixtures, use a Node version supported by the managed stack and install the locked test dependencies:
@@ -146,5 +146,7 @@ cargo test --locked managed_server_runtime -- --ignored --nocapture
 ```
 
 This test uses the extension's real launch arguments, starts the server with npm offline, and opens temporary projects containing real Angular packages without a project-local language server. It also places conflicting TypeScript and language-service packages at the monorepo root to verify managed probe isolation. These checks run in CI; they do not automate Zed's UI.
+
+For checks inside the editor, follow the [Zed smoke-test procedure](tests/zed-smoke-test.md). It covers dev-extension installation, diagnostics, hover, completion, reuse across editor sessions, and the custom-server override.
 
 When updating the managed stack, change the exact versions in `managed-server/package.json`, regenerate its lockfile, update the version table above, and rerun both sets of tests. The extension embeds that manifest at compile time.
