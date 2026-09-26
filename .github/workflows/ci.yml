@@ -1,4 +1,4 @@
-name: Code Formatting Check
+name: Extension Checks
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
 
 jobs:
   fmt:
-    name: fmt and build
+    name: Rust and Angular server checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -26,6 +26,17 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
+          components: rustfmt, clippy
+          target: wasm32-wasip1
+
+      - name: Set Up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26.8.1'
+          cache: npm
+          cache-dependency-path: |
+            managed-server/package-lock.json
+            tests/package-lock.json
 
       - name: Cache Cargo registry
         uses: actions/cache@v3
@@ -46,10 +57,21 @@ jobs:
             ${{ runner.os }}-cargo-build-
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --locked --target wasm32-wasip1
 
-      - name: Install rustfmt
-        run: rustup component add rustfmt
+      - name: Test
+        run: cargo test --locked
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Check Formatting
         run: cargo fmt -- --check
+
+      - name: Install managed stack and test fixtures
+        run: |
+          npm ci --prefix managed-server --ignore-scripts --no-audit --no-fund
+          npm ci --prefix tests --ignore-scripts --no-audit --no-fund
+
+      - name: Test Angular compatibility and offline startup
+        run: cargo test --locked managed_server_runtime -- --ignored --nocapture

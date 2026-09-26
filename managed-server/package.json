@@ -1,0 +1,10 @@
+{
+  "name": "zed-angular-managed-server",
+  "private": true,
+  "description": "The language-server stack pinned to this extension release.",
+  "dependencies": {
+    "@angular/language-server": "22.2.0",
+    "@angular/language-service": "22.2.0",
+    "typescript": "6.0.3"
+  }
+}

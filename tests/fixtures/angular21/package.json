@@ -1,0 +1,7 @@
+{
+  "name": "angular21-fixture",
+  "private": true,
+  "dependencies": {
+    "@angular/core": "21.2.24"
+  }
+}
