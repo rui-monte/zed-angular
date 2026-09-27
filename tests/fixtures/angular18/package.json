@@ -1,0 +1,7 @@
+{
+  "name": "angular18-fixture",
+  "private": true,
+  "dependencies": {
+    "@angular/core": "18.2.14"
+  }
+}

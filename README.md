@@ -14,29 +14,31 @@ This extension integrates the Angular Language Service into Zed. It uses the sam
 
 ## Automatic Language Server Installation
 
-No global or project-local language server installation is required. On its first start, the extension uses Zed's Node extension API to download matching releases of `@angular/language-server` and its runtime `@angular/language-service` package into extension-managed storage. The extension starts that managed server by absolute path and adds its storage to Angular's package probe locations. The extension reuses those installations on subsequent starts and checks for updates once per extension session.
+No global or project-local language server installation is required. The extension uses Zed's Node extension API to install the exact versions in [`managed-server/package.json`](managed-server/package.json) into Zed's extension storage:
 
-The server still probes the open worktree for the project's Angular and TypeScript packages, so application dependencies should be installed normally (for example with `npm install`). If the npm registry is temporarily unavailable, an already downloaded server remains usable.
+| Package | Pinned version |
+| --- | --- |
+| `@angular/language-server` | `22.2.0` |
+| `@angular/language-service` | `22.2.0` |
+| `typescript` | `6.0.3` |
+
+Startup checks the installed versions locally. Matching packages are reused without npm registry access, including across Zed sessions. Missing packages or versions left by an older extension release are installed at the pinned versions. The extension never checks npm `latest`; changing the managed stack requires an extension update.
+
+The first installation requires network access. If an installation is incomplete or has different versions, startup reports the package that could not be installed instead of running a mixed stack. Reconnect and restart the language server to retry. Once all three pinned packages are present, startup works offline.
+
+Install your application's dependencies normally (for example with `npm install`). The language service still needs the project's Angular packages and `tsconfig.json`. The managed stack requires Node `^22.22.3`, `^24.15.0`, or `>=26.0.0`, obtained through Zed's Node API.
 
 To opt out of the managed server, set `angular_language_server_path` to a local installation as described below.
 
-## Version Management
+## TypeScript and Angular Compatibility
 
-The extension manages the latest `@angular/language-server` package and uses the `typescript` package available in your project.
+In managed mode, both `--tsProbeLocations` and `--ngProbeLocations` point only to the extension's storage. The server uses its pinned TypeScript and Angular language-service packages even when the project contains different versions. Your application's TypeScript build dependency is independent and does not need to match the editor's version.
 
-The major version of `@angular/language-server` must match the Angular major version used by your project. TypeScript must be **5.0 or later**, and **6.0.3 is the latest supported version** — newer releases are untested and may fail to load. Mismatches typically surface as a `Failed to resolve 'typescript/lib/tsserverlibrary'` error in the language server logs.
+The managed Angular language service [detects `@angular/core` relative to each project's `tsconfig.json`](https://github.com/angular/angular/commit/8a7cbd46685874f4500c52629d09c5f7fd309080). It can therefore use different Angular compatibility settings for nested projects in the same worktree. The extension does not force a single Angular core version for the whole workspace.
 
-If your project would otherwise pull in a newer TypeScript, pin it:
+Runtime tests exercise Angular **18.2.14**, **21.2.24**, and **22.2.0** together, checking template hovers, diagnostics, and the different standalone-component defaults before and after Angular 19. This is the verified compatibility set for this stack, not a guarantee for every Angular version or compiler option. Other versions, particularly older releases or projects newer than the managed service, may need a custom server.
 
-```json
-{
-  "devDependencies": {
-    "typescript": "~6.0.3"
-  }
-}
-```
-
-Refer to [Angular Version Compatibility](https://angular.dev/reference/versions#unsupported-angular-versions) for details.
+Use `angular_language_server_path` for a project-local or manually pinned server when needed. Fallback to a local server is explicit; the extension does not switch implementations based on the project's Angular version.
 
 ## Configuration
 
@@ -47,7 +49,7 @@ All options are set under `lsp.angular.initialization_options` in your Zed `sett
 | `angular_language_server_path` | `string` | extension-managed installation           | Optional location of a custom `@angular/language-server` package directory.        |
 | `max_ts_server_memory`         | `number` | unset (node default, ~4 GB)              | Heap limit in MB, passed to node as `--max-old-space-size`.                         |
 
-Both can be combined — this is the typical monorepo setup, where the app lives in a subfolder *and* the project is large enough to exhaust node's default heap:
+Both can be combined when a monorepo needs a custom server and a larger heap:
 
 ```json
 {
@@ -78,7 +80,7 @@ The value must be the **package directory**, not the `index.js` file inside it (
 
 The path is **not validated** by the extension. Zed extensions run sandboxed and can only inspect files present in the project's file index, which excludes gitignored trees such as `node_modules`, so any existence check would report false negatives. If the path is wrong, Node reports a `MODULE_NOT_FOUND` error in the language server logs instead.
 
-TypeScript and Angular are then probed in the worktree root, its `node_modules`, and the ancestors of the resolved package directory — so a server under `client/` still resolves `client/node_modules/typescript` correctly.
+Custom mode skips all managed-package checks and installations. TypeScript and the Angular language service are probed in the worktree root, its `node_modules`, and the ancestors of the resolved package directory, in that order. A server under `client/` can therefore resolve `client/node_modules/typescript`. You are responsible for selecting versions compatible with the custom server; the managed TypeScript pin does not apply in this mode.
 
 ### Memory
 
@@ -102,7 +104,7 @@ Start at `8192` and increase only if crashes persist; the value is a ceiling, no
 
 To install this extension locally:
 
-1. Clone this repository.
+1. Clone this repository and [install Rust via rustup](https://zed.dev/docs/extensions/developing-extensions#developing-an-extension-locally). Zed must be able to find `rustc` and `cargo` on its PATH.
 2. Open the Zed editor and navigate to the Extensions window.
 3. Click on "Install Dev Extension."
 4. Select the cloned repository location and complete the installation.
@@ -122,3 +124,29 @@ To install this extension locally:
 ```
 
 If the published version of the extension is already installed, Zed uninstalls it before installing the dev extension. After changing the source, run `zed: rebuild dev extension` from the command palette — the extension is compiled to WebAssembly at install/rebuild time, so edits are not picked up until you do.
+
+## Development Checks
+
+The Rust tests cover installation, offline reuse, retries, custom paths, and launch arguments:
+
+```sh
+cargo fmt -- --check
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+rustup target add wasm32-wasip2
+cargo build --locked --target wasm32-wasip2
+```
+
+To run the actual language server against the Angular fixtures, use a Node version supported by the managed stack and install the locked test dependencies:
+
+```sh
+npm ci --prefix managed-server --ignore-scripts --no-audit --no-fund
+npm ci --prefix tests --ignore-scripts --no-audit --no-fund
+cargo test --locked managed_server_runtime -- --ignored --nocapture
+```
+
+This test uses the extension's real launch arguments, starts the server with npm offline, and opens temporary projects containing real Angular packages without a project-local language server. It also places conflicting TypeScript and language-service packages at the monorepo root to verify managed probe isolation. These checks run in CI; they do not automate Zed's UI.
+
+For checks inside the editor, follow the [Zed smoke-test procedure](tests/zed-smoke-test.md). It covers dev-extension installation, diagnostics, hover, completion, reuse across editor sessions, and the custom-server override.
+
+When updating the managed stack, change the exact versions in `managed-server/package.json`, regenerate its lockfile, update the version table above, and rerun both sets of tests. The extension embeds that manifest at compile time.

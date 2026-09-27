@@ -1,0 +1,9 @@
+{
+  "name": "zed-angular-integration-tests",
+  "private": true,
+  "type": "module",
+  "workspaces": ["fixtures/*"],
+  "devDependencies": {
+    "vscode-jsonrpc": "8.2.0"
+  }
+}
